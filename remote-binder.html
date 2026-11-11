@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Binder</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --panel2: #23272f; --line: #323843; --text: #e6e8ec; --dim: #8b93a1;
+    --accent: #5aa9ff; --ok: #4cc38a; --warn: #f0b34a; --bad: #ef6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 10px 0 0; font-weight: 600; }
+  .sp { flex: 1; }
+  button, select, input[type=text], input[type=number] { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #07121f; font-weight: 600; }
+  button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+  button.small { padding: 2px 7px; font-size: 12px; }
+  .pill { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  main { flex: 1; display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 10px; overflow: auto; }
+  aside h2, .editor h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; font-weight: 600; }
+  .layer { padding: 7px 9px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+  .layer:hover { background: var(--panel2); }
+  .layer.sel { background: var(--panel2); border-color: var(--accent); }
+  .layer small { color: var(--dim); }
+  .layer .live { color: var(--ok); }
+  .row-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .editor { padding: 14px; overflow: auto; min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .toolbar label { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+  .bind { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .bind-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .act { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-width: 210px; }
+  .act .t { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-weight: 600; }
+  .act .f { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
+  .act .f label { color: var(--dim); font-size: 12px; }
+  .act input[type=text], .act input[type=number] { width: 100%; padding: 3px 6px; }
+  .act .note { color: var(--dim); font-size: 12px; margin-top: 4px; }
+  .add { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .warns { margin: 0 0 12px; padding: 0; list-style: none; }
+  .warns li { color: var(--warn); font-size: 13px; padding: 2px 0; }
+  .warns li.err { color: var(--bad); }
+  .hint { color: var(--dim); font-size: 12px; }
+  #log { height: 130px; overflow: auto; margin: 0; padding: 8px 14px; background: #0f1114; border-top: 1px solid var(--line); font: 12px/1.35 ui-monospace, Consolas, monospace; color: #9aa4b2; white-space: pre-wrap; }
+  #bar { height: 3px; background: var(--panel); }
+  #bar > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  input[type=file] { display: none; }
+  .mono { font-family: ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Remote Binder</h1>
+  <button id="btnConnect">Connect hub</button>
+  <span id="status" class="pill">not connected</span>
+  <span class="sp"></span>
+  <button id="btnNet" title="WiFi and MQTT broker settings stored on the hub">Network…</button>
+  <button id="btnFind" title="Work out which scan ID a physical button has, using the hub">Find scan IDs…</button>
+  <button id="btnFlipper" title="Load one or more Flipper Zero .ir files to copy IR codes from">Load Flipper .ir…</button>
+  <button id="btnOpen">Open project…</button>
+  <button id="btnSave">Save project</button>
+  <button id="btnReset" class="danger">Reset to defaults</button>
+  <button id="btnUpload" class="primary">Upload to remote</button>
+  <input id="fileFlipper" type="file" accept=".ir,.txt" multiple>
+  <input id="fileOpen" type="file" accept=".json,application/json">
+</header>
+<div id="bar"><div></div></div>
+<main>
+  <aside>
+    <h2>Layers</h2>
+    <div id="layers"></div>
+    <div class="row-btns">
+      <button id="btnAddLayer" class="small">+ Layer</button>
+      <button id="btnDupLayer" class="small">Copy</button>
+      <button id="btnDelLayer" class="small danger">Delete</button>
+      <button id="btnUp" class="small">▲</button>
+      <button id="btnDown" class="small">▼</button>
+    </div>
+    <p class="hint">The first layer is active when the remote connects. The layer switch button steps to the next layer.</p>
+    <h2 style="margin-top:16px">Layer switch button</h2>
+    <div id="swbox"></div>
+    <p class="hint" id="flipInfo">No Flipper files loaded.</p>
+  </aside>
+  <section class="editor" id="editor"></section>
+</main>
+<dialog id="dlgNet" style="background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;max-width:560px;width:92vw">
+  <h2 style="margin:0 0 8px;font-size:16px;text-transform:none;letter-spacing:0;color:var(--text)">Network (WiFi and MQTT)</h2>
+  <p class="hint">Stored on the hub in plain text, and sent to it over the USB cable. They are never saved in project files. Leave a field empty to clear it.</p>
+  <div id="netForm" class="act" style="min-width:0"></div>
+  <div id="netStatus" class="hint" style="margin:8px 0;min-height:18px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button id="netCheck">Check status</button>
+    <button id="netSend" class="primary">Send to hub</button>
+    <button id="netClose">Close</button>
+  </div>
+</dialog>
+<dialog id="dlgFind" style="background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;max-width:640px;width:92vw">
+  <h2 style="margin:0 0 8px;font-size:16px;text-transform:none;letter-spacing:0;color:var(--text)">Find scan IDs</h2>
+  <p class="hint">Lists the physical buttons you want to identify (one name per line). The hub then loads a series of probe tables onto the remote and asks you to press each button once per round (8 rounds). From which presses get through, it works out each button's scan ID and key press ID. This <b>erases the remote's tables</b>; your project is uploaded again at the end.</p>
+  <textarea id="findLabels" rows="6" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px" placeholder="Menu&#10;Home&#10;Back"></textarea>
+  <label class="hint" style="display:block;margin:6px 0"><input type="checkbox" id="findWide"> also test scan IDs 42–63 (for buttons beyond the known list; may be rejected by the remote)</label>
+  <div id="findPrompt" style="font-size:20px;font-weight:600;min-height:30px;margin:8px 0"></div>
+  <div id="findStatus" class="hint" style="min-height:18px"></div>
+  <div id="findResult" style="margin:8px 0;font-size:13px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button id="findStart" class="primary">Start</button>
+    <button id="findApply" disabled>Save results to project</button>
+    <button id="findClose">Close</button>
+  </div>
+</dialog>
+<pre id="log"></pre>
+
+<script>
+// ============================ CORE (no DOM; unit-tested) ============================
+const Core = (() => {
+  // Scan IDs and names for the Alexa Voice Remote (pid 0x0414), from the Fire TV's own resource.
+  const KEYS = [[0,'FastForward'],[1,'Up'],[2,'Power'],[3,'ChannelUp'],[4,'Yellow'],[5,'Number6'],[6,'PlayPause'],
+    [7,'Right'],[8,'Voice'],[9,'ChannelDown'],[10,'Blue'],[11,'Number7'],[12,'VolumeUp'],[13,'Down'],[14,'Home'],
+    [15,'GuideLive'],[16,'Number1'],[17,'Number8'],[18,'VolumeDown'],[19,'Select'],[20,'Rewind'],[21,'SleepTimer'],
+    [22,'Number2'],[23,'Number9'],[24,'PrimeVideo'],[25,'Left'],[26,'NotUsed1'],[27,'K123'],[28,'Number3'],[29,'CC'],
+    [30,'Netflix'],[31,'Back'],[32,'Mute'],[33,'Red'],[34,'Number4'],[35,'Number0'],[36,'Partner1'],[37,'Menu'],
+    [38,'Partner2'],[39,'Green'],[40,'Number5'],[41,'Txt']];
+  const KEY_NOTES = {21: 'Settings key on this remote', 24: 'default layer switch key'};
+  // How the remote reports a key over Bluetooth (report id : bytes), for the keys already seen. Others: use Learn.
+  const KNOWN_SIG = {1: '1:52', 13: '1:51', 25: '1:50', 7: '1:4F', 19: '1:58', 21: '2:33', 24: '239:A1'};
+  const SIG_RE = /^\d{1,3}:([0-9a-fA-F]{2}){1,4}$/;
+  let book = {};   // the current project: its learned key press IDs (book.sigs) and key labels (book.labels)
+  const setBook = p => { book = p || {}; };
+  const sigOf = row => ((row.sig || (book.sigs || {})[row.scan] || KNOWN_SIG[row.scan] || '').trim()).toUpperCase();
+  function allKeys() {
+    const out = KEYS.map(k => [k[0], (book.labels || {})[k[0]] || k[1]]);
+    for (const sc of Object.keys(book.labels || {}).map(Number)) if (!out.some(k => k[0] === sc)) out.push([sc, book.labels[sc]]);
+    return out.sort((a, b) => a[0] - b[0]);
+  }
+  const KBD_KEYS = [];
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((c, i) => KBD_KEYS.push([4 + i, c]));
+  '1234567890'.split('').forEach((c, i) => KBD_KEYS.push([30 + i, c]));
+  KBD_KEYS.push([40,'Enter'],[41,'Esc'],[42,'Backspace'],[43,'Tab'],[44,'Space'],[45,'- _'],[46,'= +'],[47,'[ {'],[48,'] }'],[49,'\\ |'],[51,'; :'],[52,"' \""],[53,'` ~'],[54,', <'],[55,'. >'],[56,'/ ?'],[57,'Caps Lock']);
+  for (let i = 1; i <= 12; i++) KBD_KEYS.push([57 + i, 'F' + i]);
+  KBD_KEYS.push([70,'Print Screen'],[71,'Scroll Lock'],[72,'Pause'],[73,'Insert'],[74,'Home'],[75,'Page Up'],[76,'Delete'],[77,'End'],[78,'Page Down'],[79,'Right arrow'],[80,'Left arrow'],[81,'Down arrow'],[82,'Up arrow'],[101,'Menu (context)']);
+  for (let i = 13; i <= 24; i++) KBD_KEYS.push([104 + i - 13, 'F' + i]);
+  const SYSTEM_KEYS = [[2, 'Sleep PC'], [3, 'Wake PC'], [1, 'Shut down PC']];
+  const MEDIA_KEYS = [[0xCD,'Play/Pause'],[0xB5,'Next track'],[0xB6,'Previous track'],[0xB7,'Stop'],[0xB3,'Fast forward'],[0xB4,'Rewind'],
+    [0xE2,'Mute'],[0xE9,'Volume up'],[0xEA,'Volume down'],[0x6F,'Brightness up'],[0x70,'Brightness down'],[0x30,'Power'],[0x32,'Sleep'],
+    [0x183,'Media player'],[0x18A,'Mail'],[0x192,'Calculator'],[0x221,'Browser search'],[0x223,'Browser home'],[0x224,'Browser back'],[0x225,'Browser forward'],[0x227,'Browser refresh']];
+  const isHub = a => a.t === 'kbd' || a.t === 'goto' || a.t === 'mqtt';   // actions the hub performs, not the remote
+  const MODS = [['Ctrl', 1], ['Shift', 2], ['Alt', 4], ['Win/Cmd', 8]];
+  const NET_LIMITS = { actions: 24, s1: 79, s2: 199 };
+  const LIMITS = { table: 60000, irValues: 500, layers: 8, chunk: 200 };
+  const DPAD = [1, 13, 25, 7, 19];
+  const PRIME = 24;
+
+  const u16 = n => [n & 255, (n >> 8) & 255];
+  const strBytes = s => Array.from(s, c => c.charCodeAt(0));
+  const toHex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  function fromHex(s) {
+    if (s.length % 2 || /[^0-9a-f]/i.test(s)) throw new Error('bad hex');
+    const out = new Uint8Array(s.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
+    return out;
+  }
+  const num = (v, d = 0) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? n : d; };
+
+  // ---- SHA-256 (the remote verifies a table with this) ----
+  const K256 = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  function sha256(data) {
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    const l = data.length, bitLen = l * 8;
+    const padded = new Uint8Array(((l + 9 + 63) >> 6) << 6);
+    padded.set(data); padded[l] = 0x80;
+    const dv = new DataView(padded.buffer);
+    dv.setUint32(padded.length - 8, Math.floor(bitLen / 4294967296)); dv.setUint32(padded.length - 4, bitLen >>> 0);
+    const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    const w = new Uint32Array(64);
+    for (let off = 0; off < padded.length; off += 64) {
+      for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);
+        const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);
+        w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+      }
+      let [a,b,c,d,e,f,g,h] = H;
+      for (let i = 0; i < 64; i++) {
+        const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25), ch = (e & f) ^ (~e & g);
+        const t1 = (h + S1 + ch + K256[i] + w[i]) | 0;
+        const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22), mj = (a & b) ^ (a & c) ^ (b & c);
+        const t2 = (S0 + mj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0]=(H[0]+a)|0; H[1]=(H[1]+b)|0; H[2]=(H[2]+c)|0; H[3]=(H[3]+d)|0; H[4]=(H[4]+e)|0; H[5]=(H[5]+f)|0; H[6]=(H[6]+g)|0; H[7]=(H[7]+h)|0;
+    }
+    const out = new Uint8Array(32), o = new DataView(out.buffer);
+    H.forEach((x, i) => o.setUint32(i * 4, x >>> 0));
+    return out;
+  }
+
+  // ---- IR frames (units of 10 microseconds, as the remote's table uses them) ----
+  // Timings are the ones the Fire TV itself pushed for the LG C4 (NEC family).
+  function frameFromBytes(bs, rep) {
+    const v = [894, 444];
+    for (const byte of bs) for (let i = 0; i < 8; i++) v.push(52, (byte >> i) & 1 ? 168 : 52);
+    if (rep) v.push(52, 4060, 894, 223, 52, 9632);   // frame, then an NEC repeat code (what the Fire TV sends for volume up)
+    else v.push(52, 9632);
+    return v;
+  }
+  function irValues(a) {
+    if (a.t === 'nec') { const ad = num(a.addr) & 255, cm = num(a.cmd) & 255; return frameFromBytes([ad, ad ^ 255, cm, cm ^ 255], a.rep); }
+    if (a.t === 'necx') { const ad = num(a.addr) & 0xffff, cm = num(a.cmd) & 0xffff; return frameFromBytes([ad & 255, ad >> 8, cm & 255, cm >> 8], a.rep); }
+    if (a.t === 'raw') {
+      const v = (a.data || []).map(x => Math.min(65535, Math.max(1, Math.round(num(x) / 10))));
+      if (v.length % 2) v.push(500);          // frames end with a space
+      return v;
+    }
+    throw new Error('not an IR action');
+  }
+  function compileAction(a) {
+    if (a.t === 'ble') return [5, 0, ...u16(1), 0];
+    const vals = irValues(a);
+    if (vals.length === 0) throw new Error('IR action has no timing data');
+    const hdr = `f[${num(a.freq, 38028)}]c[${num(a.duty, 33)}]l[${vals.length}][0]r[${num(a.repeat)}]d[${num(a.post)}]t[0]`;
+    const payload = [...strBytes(hdr), 0, ...vals.flatMap(u16)];
+    return [a.opt ? 6 : 3, 0, ...u16(payload.length), ...payload];
+  }
+  // Keyboard actions live in the hub, not in the remote's table. A key with only keyboard actions gets no table
+  // row (the remote then sends its normal key press); a key with IR plus keyboard gets its IR plus a BLE key press.
+  function tableRows(layer) {
+    const out = [];
+    for (const row of layer.rows) {
+      if (!row.actions.length) throw new Error(`Key ${row.scan} has no actions`);
+      const acts = row.actions.filter(a => !isHub(a));
+      if (!acts.length) continue;
+      if (acts.length < row.actions.length && !acts.some(a => a.t === 'ble')) acts.push({ t: 'ble' });
+      out.push({ scan: row.scan, actions: acts });
+    }
+    // The remote rejects a table with no rows (seen: verify fails on a 33-byte table). Add a row on a key that does
+    // not exist on this remote (scan 26) so the table is never empty.
+    if (!out.length) out.push({ scan: 26, actions: [{ t: 'nec', addr: 0x7E, cmd: 26, freq: 38028, duty: 33, post: 0, repeat: 0, opt: false }, { t: 'ble' }] });
+    return out;
+  }
+  // A layer can have a base layer: keys the layer does not bind fall through to the base layer's bindings
+  // (and to that layer's own base, and so on). Own rows always win.
+  function effectiveRows(layer, project, seen) {
+    seen = seen || new Set();
+    seen.add(layer.id);
+    const rows = layer.rows.slice();
+    const base = layer.base && (project.layers || []).find(x => x.id === layer.base);
+    if (base && !seen.has(base.id)) {
+      const own = new Set(rows.map(r => r.scan));
+      for (const r of effectiveRows(base, project, seen)) if (!own.has(r.scan)) rows.push(r);
+    }
+    return rows;
+  }
+  function baseLoops(layer, project) {
+    const seen = new Set([layer.id]);
+    let cur = layer;
+    while (cur.base) {
+      const nx = (project.layers || []).find(x => x.id === cur.base);
+      if (!nx) return false;
+      if (seen.has(nx.id)) return true;
+      seen.add(nx.id); cur = nx;
+    }
+    return false;
+  }
+  function compileLayer(layer, project) {
+    const rows = tableRows({ rows: effectiveRows(layer, project || book) });
+    const body = [rows.length];
+    for (const row of rows) {
+      const acts = row.actions.flatMap(compileAction);
+      body.push(row.scan & 255, row.actions.length, ...u16(acts.length), ...acts);
+    }
+    const b = Uint8Array.from(body);
+    const out = new Uint8Array(b.length + 32);
+    out.set(b); out.set(sha256(b), b.length);
+    return out;
+  }
+
+  // ---- project checks ----
+  function check(project) {
+    const warns = [];
+    const w = (msg, err) => warns.push({ msg, err: !!err });
+    if (project.layers.length < 1) w('Add at least one layer.', true);
+    if (project.layers.length > LIMITS.layers) w(`The hub supports at most ${LIMITS.layers} layers.`, true);
+    const sw = ((project.switchKey || {}).sig || '').trim().toUpperCase();
+    if (sw && !SIG_RE.test(sw)) w('The layer switch button has no valid key press ID. Click Learn next to it, or click None.', true);
+    let nrules = 0;
+    project.layers.forEach(L => {
+      const n = L.name || '(unnamed)';
+      const seen = new Set();
+      let size = 0;
+      for (const r of L.rows) {
+        if (seen.has(r.scan)) w(`${n}: key ${keyName(r.scan)} is bound twice.`, true);
+        seen.add(r.scan);
+        if (!r.actions.length) w(`${n}: ${keyName(r.scan)} has no actions.`, true);
+        for (const a of r.actions) {
+          if (a.t === 'raw' && irValues(a).length > LIMITS.irValues) w(`${n}: ${keyName(r.scan)} has an IR code longer than ${LIMITS.irValues} values.`, true);
+          if (a.t === 'raw' && !(a.data || []).length) w(`${n}: ${keyName(r.scan)} has an empty raw code.`, true);
+          if (a.t === 'unsupported') w(`${n}: ${keyName(r.scan)} uses an unsupported IR protocol (${a.proto}).`, true);
+        }
+        const hasBle = r.actions.some(a => a.t === 'ble' || isHub(a));
+        const kb = r.actions.filter(isHub);
+        if (kb.filter(a => a.t === 'goto').length > 1 || kb.filter(a => a.t === 'kbd').length > 1) w(`${n}: ${keyName(r.scan)} can have one PC key/media key/sleep-wake action and one go-to-layer action, not more.`, true);
+        for (const a of kb) {
+          if (a.t === 'mqtt') {
+            if (!(a.topic || '').trim()) w(`${n}: ${keyName(r.scan)} has an MQTT action with no topic.`, true);
+            if ((a.topic || '').length > NET_LIMITS.s1 || (a.payload || '').length > NET_LIMITS.s2) w(`${n}: ${keyName(r.scan)} has an MQTT topic over ${NET_LIMITS.s1} or payload over ${NET_LIMITS.s2} characters.`, true);
+          }
+        }
+        if (kb.length) {
+          nrules++;
+          const sg = sigOf(r);
+          if (!SIG_RE.test(sg)) w(`${n}: ${keyName(r.scan)} needs its key press ID. Click Learn, then press that key on the remote.`, true);
+          else if (sw && sg === sw) w(`${n}: ${keyName(r.scan)} is the layer switch button, so its keyboard action will never fire.`);
+          if (kb.some(a => a.t === 'goto' && !project.layers.some(x => x.id === a.layer))) w(`${n}: ${keyName(r.scan)} jumps to a layer that no longer exists.`, true);
+          if (kb.some(a => a.t === 'kbd' && a.kind === 'k' && !a.code && !a.mods)) w(`${n}: ${keyName(r.scan)} has a keyboard action with no key.`, true);
+        }
+        if (sw && sigOf(r) === sw && !hasBle) w(`${n}: ${keyName(r.scan)} is the layer switch button but is IR-only. The hub may stop seeing its key press, which would break switching (unconfirmed). Add a "Normal key press" action.`);
+      }
+      const sigs = L.rows.filter(r => r.actions.some(isHub)).map(sigOf).filter(Boolean);
+      if (new Set(sigs).size < sigs.length) w(`${n}: two keyboard bindings share the same key press ID.`, true);
+      if (baseLoops(L, project)) w(`${n}: its base layers loop back to itself.`, true);
+      try { size = compileLayer(L, project).length; } catch (e) { size = 0; }
+      if (size > LIMITS.table) w(`${n}: table is ${size} bytes (limit ${LIMITS.table}).`, true);
+    });
+    if (nrules > 128) w('Too many hub bindings (the hub holds 128).', true);
+    try { if (hubLines(project).filter(l => l.startsWith('NACT')).length > NET_LIMITS.actions) w(`Too many different network actions (the hub holds ${NET_LIMITS.actions}).`, true); } catch (e) {}
+    return warns;
+  }
+  function keyName(id) { const k = allKeys().find(x => x[0] === id); return k ? `${k[1]} (${id})` : `key ${id}`; }
+
+  // ---- Flipper .ir parsing ----
+  function parseFlipper(text, file) {
+    const entries = [];
+    let cur = null;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line.startsWith('#')) { if (cur) entries.push(cur); cur = null; continue; }
+      const m = line.match(/^([A-Za-z_]+):\s*(.*)$/);
+      if (!m) continue;
+      const k = m[1].toLowerCase(), v = m[2].trim();
+      if (k === 'name') { if (cur) entries.push(cur); cur = { name: v }; }
+      else if (cur) cur[k] = v;
+    }
+    if (cur) entries.push(cur);
+    const bytes = s => (s || '').split(/\s+/).filter(Boolean).map(x => parseInt(x, 16));
+    return entries.filter(e => e.type).map(e => {
+      const label = `${file ? file.replace(/\.ir$/i, '') + ' · ' : ''}${e.name}`;
+      let action;
+      if (e.type === 'raw') {
+        const data = (e.data || '').split(/\s+/).filter(Boolean).map(Number).filter(Number.isFinite);
+        action = { t: 'raw', freq: num(e.frequency, 38000), duty: Math.round(Number(e.duty_cycle || 0.33) * 100), data };
+      } else if (e.protocol === 'NEC') {
+        const a = bytes(e.address), c = bytes(e.command);
+        action = { t: 'nec', addr: a[0] || 0, cmd: c[0] || 0 };
+      } else if (e.protocol === 'NECext') {
+        const a = bytes(e.address), c = bytes(e.command);
+        action = { t: 'necx', addr: (a[0] || 0) | ((a[1] || 0) << 8), cmd: (c[0] || 0) | ((c[1] || 0) << 8) };
+      } else {
+        action = { t: 'unsupported', proto: e.protocol || e.type };
+      }
+      return { label, action };
+    });
+  }
+
+  // ---- scan-ID finder: probe tables ----
+  // Every probe table has a row (IR-only, or IR plus a normal key press) for each scan ID being tested. A key whose row has
+  // no key press sends nothing to the hub, so which presses arrive in each pass spells out the key's scan ID in binary.
+  const popcount = n => { let c = 0; for (; n; n >>= 1) c += n & 1; return c; };
+  const PROBE_BITS = 6;
+  function probePasses() { return [{ type: 'all' }, ...Array.from({ length: PROBE_BITS }, (_, i) => ({ type: 'bit', i })), { type: 'parity' }]; }
+  function probeLayer(pass, maxScan, id) {
+    const rows = [];
+    for (let sc = 0; sc < maxScan; sc++) {
+      const withKey = pass.type === 'all' ? true : pass.type === 'bit' ? ((sc >> pass.i) & 1) === 1 : (popcount(sc) & 1) === 1;
+      const acts = [{ t: 'nec', addr: 0x7E, cmd: sc, freq: 38028, duty: 33, post: 0, repeat: 0, opt: false }];
+      if (withKey) acts.push({ t: 'ble' });
+      rows.push({ scan: sc, actions: acts });
+    }
+    return { id, name: 'probe ' + (pass.type === 'bit' ? 'bit ' + pass.i : pass.type), rows };
+  }
+  // reads: [pressedAll, bit0..bit5, parity] -> {scan, ok, why}
+  function decodeProbe(reads, maxScan) {
+    if (!reads[0]) return { scan: null, ok: false, why: 'no key press seen on the reference pass' };
+    let scan = 0;
+    for (let i = 0; i < PROBE_BITS; i++) if (reads[1 + i]) scan |= 1 << i;
+    const parity = reads[1 + PROBE_BITS] ? 1 : 0;
+    if (scan === (1 << PROBE_BITS) - 1 && parity === 1 && maxScan <= scan) return { scan, ok: false, why: 'key press arrived on every pass (not suppressed, or the key is outside the tested range)' };
+    if ((popcount(scan) & 1) !== parity) return { scan, ok: false, why: 'parity mismatch: a press was probably missed, test it again' };
+    if (scan >= maxScan) return { scan, ok: false, why: 'outside the tested range' };
+    return { scan, ok: true };
+  }
+
+  // ---- default project: what is on the remote today ----
+  const PC_ID = '7c3e5a10-2b4d-4f6a-9e81-5d0c4a1b2f01', TV_ID = '7c3e5a10-2b4d-4f6a-9e81-5d0c4a1b2f02';
+  const nec = (cmd, extra) => Object.assign({ t: 'nec', addr: 4, cmd, freq: 38028, duty: 33, post: 0, repeat: 0, opt: false }, extra);
+  const ble = () => ({ t: 'ble' });
+  function defaults() {
+    const base = () => [
+      { scan: 2,  actions: [nec(0x08, { opt: true, post: 1000 }), ble()] },   // Power
+      { scan: 12, actions: [nec(0x02, { rep: true }), ble()] },                              // Volume up
+      { scan: 18, actions: [nec(0x03), ble()] },                              // Volume down
+      { scan: 32, actions: [nec(0x09, { post: 120 }), ble()] },                              // Mute
+      { scan: 30, actions: [nec(0x0B), ble()] },                              // Netflix -> TV Input
+    ];
+    const kb = (scan, code) => ({ scan, actions: [{ t: 'kbd', kind: 'k', code, mods: 0 }] });
+    return { version: 2, switchKey: { sig: '239:A1' }, labels: {}, sigs: {}, layers: [
+      { id: PC_ID, name: 'PC', rows: base().concat([kb(1, 0x52), kb(13, 0x51), kb(25, 0x50), kb(7, 0x4F), kb(19, 0x28)]) },
+      { id: TV_ID, name: 'TV', rows: base().concat([
+        { scan: 1, actions: [nec(0x40)] }, { scan: 13, actions: [nec(0x41)] },
+        { scan: 25, actions: [nec(0x07)] }, { scan: 7, actions: [nec(0x06)] },
+        { scan: 19, actions: [nec(0x44)] },                                   // D-pad -> LG arrows + OK
+        { scan: 21, actions: [nec(0x43)] },                                   // Settings key -> LG Settings
+      ]) },
+    ] };
+  }
+  // Older projects had a per-layer "forward arrows" flag; turn it into real keyboard bindings.
+  function migrate(p) {
+    if (!p.switchKey || typeof p.switchKey.sig !== 'string') p.switchKey = { sig: '239:A1' };
+    const arrows = { 1: 0x52, 13: 0x51, 25: 0x50, 7: 0x4F, 19: 0x28 };
+    for (const L of p.layers) {
+      if (L.fwd) for (const [scan, code] of Object.entries(arrows)) {
+        const sc = Number(scan);
+        if (L.rows.some(r => r.scan === sc)) continue;
+        L.rows.push({ scan: sc, actions: [{ t: 'kbd', kind: 'k', code, mods: 0 }] });
+      }
+      delete L.fwd;
+    }
+    p.labels = p.labels || {}; p.sigs = p.sigs || {};
+    for (const L of p.layers) L.rows = L.rows.map(r => Object.assign(r, { actions: r.actions.filter(a => a.t !== 'ha') })).filter(r => r.actions.length);   // Home Assistant actions were removed
+    p.version = 2;
+    return p;
+  }
+  const hexStr = t => t ? toHex(new TextEncoder().encode(t)) : '-';
+  // What the hub needs to fire a network action (kind m = MQTT publish).
+  function netSpec(a) {
+    return { kind: 'm', flag: a.retain ? 1 : 0, s1: (a.topic || '').trim(), s2: a.payload || '' };
+  }
+  function hubLines(project) {
+    const lines = ['RCLEAR'];
+    const nets = [];   // unique network actions, referenced by index from the rules
+    const netIndex = a => {
+      const key = JSON.stringify(netSpec(a));
+      let i = nets.findIndex(n => n.key === key);
+      if (i < 0) { nets.push({ key, spec: netSpec(a) }); i = nets.length - 1; }
+      return i;
+    };
+    project.layers.forEach((L, li) => effectiveRows(L, project).forEach(r => { const done = new Set(); r.actions.filter(isHub).forEach(a => {
+      if (a.t === 'mqtt') { const ni = netIndex(a); if (!done.has(ni)) { done.add(ni); lines.push(`RULE ${li} ${sigOf(r)} n 0 ${ni.toString(16)}`); } }
+      else if (a.t === 'goto') lines.push(`RULE ${li} ${sigOf(r)} g 0 ${Math.max(0, project.layers.findIndex(x => x.id === a.layer)).toString(16)}`);
+      else { const kc = a.kind === 'c' ? 'c' : a.kind === 's' ? 's' : 'k'; lines.push(`RULE ${li} ${sigOf(r)} ${kc} ${(kc === 'k' ? num(a.mods) : 0).toString(16)} ${num(a.code).toString(16)}`); }
+    }); }));
+    lines.push('RSAVE');
+    lines.push('NCLEAR');
+    nets.forEach((n, i) => lines.push(`NACT ${i} ${n.spec.kind} ${n.spec.flag} ${hexStr(n.spec.s1)} ${hexStr(n.spec.s2)}`));
+    lines.push('NSAVE', 'SWKEY ' + (project.switchKey.sig.trim().toUpperCase() || '-'));
+    return lines;
+  }
+  function newId() {
+    const b = new Uint8Array(16);
+    (globalThis.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => b[i] = Math.floor(Math.random() * 256));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = toHex(b);
+    return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+  }
+  const idHex = id => id.replace(/-/g, '').toLowerCase();
+
+  // ---- upload sequence over an abstract link: link.cmd(line, timeoutMs) -> reply line ----
+  async function upload(link, project, progress) {
+    const problems = check(project).filter(x => x.err);
+    if (problems.length) throw new Error(problems[0].msg);
+    const hello = await link.cmd('HELLO', 4000);
+    if (!/^@HELLO/.test(hello)) throw new Error('Unexpected reply from the hub: ' + hello);
+    if (!/conn=1/.test(hello)) throw new Error('The hub is not connected to the remote. Press a button on the remote, wait for "remote connected", then try again.');
+    const tables = project.layers.map(L => ({ L, bytes: compileLayer(L, project) }));
+    const extra = hubLines(project);
+    const steps = 2 + extra.length + tables.reduce((n, t) => n + 2 + Math.ceil(t.bytes.length / LIMITS.chunk), 0) + 2;
+    let done = 0;
+    const ok = async (line, timeout) => {
+      const r = await link.cmd(line, timeout);
+      if (r === '@ERR unknown') throw new Error('The hub firmware is out of date: flash the new hub2.ino (it needs the RULE/SWKEY commands).');
+      if (!r.startsWith('@OK')) throw new Error(`${line.split(' ')[0]} failed: ${r}`);
+      progress(++done / steps, line.split(' ')[0]);
+      return r;
+    };
+    done++; progress(done / steps, 'erase');
+    await ok('ERASE', 12000);
+    for (const { L, bytes } of tables) {
+      await ok(`TBL ${idHex(L.id)} ${bytes.length}`, 5000);
+      for (let off = 0; off < bytes.length; off += LIMITS.chunk)
+        await ok('DAT ' + toHex(bytes.subarray(off, off + LIMITS.chunk)), 5000);
+      progress(done / steps, `writing "${L.name}"`);
+      await ok('WRITE', 40000);
+    }
+    await ok(`LAYERS ${tables.length} ` + tables.map(t => `${idHex(t.L.id)} ${0}`).join(' '), 5000);
+    for (const l of extra) await ok(l, 5000);
+    await ok('SWITCH 0', 12000);
+    // Read the remote's own table list back, so "done" means the tables are really there.
+    const list = await link.cmd('LIST', 6000);
+    if (list.startsWith('@LIST ')) {
+      const b = fromHex(list.slice(6).trim());
+      const n = b[0] & 0x7f, have = [];
+      for (let i = 0; i < n && 1 + 16 * (i + 1) <= b.length; i++) have.push(toHex(b.subarray(1 + 16 * i, 17 + 16 * i)));
+      const missing = tables.filter(t => !have.includes(idHex(t.L.id))).map(t => t.L.name);
+      if (missing.length) throw new Error(`The remote's table list (${n} tables) does not contain: ${missing.join(', ')}`);
+      progress(1, `verified: remote lists ${n} tables`);
+    } else progress(1, 'done (could not read the table list back)');
+    return tables.map(t => ({ name: t.L.name, size: t.bytes.length }));
+  }
+
+  return { keyName, effectiveRows, hexStr, netSpec, NET_LIMITS, setBook, allKeys, probePasses, probeLayer, decodeProbe, PROBE_BITS, KNOWN_SIG, SIG_RE, sigOf, KBD_KEYS, MEDIA_KEYS, SYSTEM_KEYS, MODS, migrate, hubLines, tableRows, KEYS, KEY_NOTES, LIMITS, DPAD, PRIME, u16, toHex, fromHex, sha256, irValues, compileAction, compileLayer,
+           check, keyName, parseFlipper, defaults, newId, idHex, upload };
+})();
+
+// ============================ UI ============================
+if (typeof document !== 'undefined') (() => {
+  const $ = id => document.getElementById(id);
+  const S = { project: null, sel: 0, flip: [], flipFiles: [], link: null, hub: { conn: false, layer: 0 }, busy: false };
+  const STORE = 'remoteBinder.project.v1';
+
+  function log(msg) {
+    const el = $('log');
+    el.textContent += msg + '\n';
+    if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-15000);
+    el.scrollTop = el.scrollHeight;
+  }
+  function h(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    let value;
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === 'class') e.className = v;
+      else if (k === 'value') value = v;
+      else if (k === 'checked') e.checked = !!v;
+      else if (k === 'disabled') e.disabled = !!v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for (const kid of kids.flat(Infinity)) {
+      if (kid == null || kid === false) continue;
+      e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    }
+    if (value !== undefined) e.value = value;
+    return e;
+  }
+
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(S.project)); } catch (e) {} }
+  function load() {
+    try { const s = localStorage.getItem(STORE); if (s) { const p = JSON.parse(s); if (p && Array.isArray(p.layers) && p.layers.length) return Core.migrate(p); } } catch (e) {}
+    return Core.defaults();
+  }
+  function changed() { save(); render(); }
+
+  const layer = () => S.project.layers[S.sel];
+  const isHubA = a => a.t === 'kbd' || a.t === 'goto' || a.t === 'mqtt';
+  const hexIn = (v, w) => { const n = parseInt(String(v).trim().replace(/^0x/i, ''), 16); return Number.isFinite(n) ? n : 0; };
+  const hex = (n, w) => n.toString(16).toUpperCase().padStart(w, '0');
+
+  // ---------- status ----------
+  function renderStatus() {
+    const st = $('status');
+    let text, cls = '';
+    if (!('serial' in navigator)) { text = 'Web Serial not available: use Chrome or Edge'; cls = 'bad'; }
+    else if (!S.link) text = 'hub not connected';
+    else if (!S.hub.known) { text = 'waiting for hub…'; cls = 'warn'; }
+    else if (S.hub.conn) { text = `hub ready${S.hub.out === 'ble' ? ' (BLE keyboard)' : ''} · remote connected · layer ${S.hub.layer + 1}`; cls = 'ok'; }
+    else { text = 'hub ready · remote NOT connected (press a button on it)'; cls = 'warn'; }
+    st.textContent = text; st.className = 'pill ' + cls;
+    $('btnConnect').textContent = S.link ? 'Disconnect' : 'Connect hub';
+    $('btnUpload').disabled = S.busy || !S.link;
+    $('flipInfo').textContent = S.flip.length ? `${S.flip.length} Flipper signals loaded from ${S.flipFiles.join(', ')}.` : 'No Flipper files loaded.';
+  }
+
+  // ---------- layers ----------
+  function renderLayers() {
+    const box = $('layers'); box.textContent = '';
+    S.project.layers.forEach((L, i) => {
+      let size = ''; try { size = Core.compileLayer(L).length + ' B'; } catch (e) { size = 'invalid'; }
+      box.append(h('div', { class: 'layer' + (i === S.sel ? ' sel' : ''), onclick: () => { S.sel = i; render(); } },
+        h('span', {}, `${i + 1}. ${L.name || '(unnamed)'}`, S.hub.conn && S.hub.layer === i ? h('span', { class: 'live' }, ' ●') : null),
+        h('small', {}, size)));
+    });
+  }
+
+  // ---------- editor ----------
+  function numField(label, obj, key, opts = {}) {
+    return [h('label', {}, label),
+      h('input', { type: 'number', value: obj[key] ?? 0, min: opts.min ?? 0, onchange: e => { obj[key] = Number(e.target.value) || 0; changed(); } })];
+  }
+  function hexField(label, obj, key, width) {
+    return [h('label', {}, label),
+      h('input', { type: 'text', class: 'mono', value: hex(obj[key] || 0, width), onchange: e => { obj[key] = hexIn(e.target.value); changed(); } })];
+  }
+  function flipperPicker(a) {
+    if (!S.flip.length) return null;
+    const sel = h('select', { onchange: e => {
+      const i = Number(e.target.value); if (i < 0) return;
+      const imp = S.flip[i].action;
+      const keep = { post: a.post, repeat: a.repeat, opt: a.opt };
+      for (const k of Object.keys(a)) delete a[k];
+      Object.assign(a, { freq: 38028, duty: 33 }, imp, keep);
+      if (imp.t === 'raw') a.freq = imp.freq || 38000;
+      changed();
+    } }, h('option', { value: -1 }, 'Import from Flipper…'),
+      S.flip.map((f, i) => h('option', { value: i, disabled: f.action.t === 'unsupported' }, f.label + (f.action.t === 'unsupported' ? ` (unsupported: ${f.action.proto})` : ''))));
+    sel.value = -1;
+    return sel;
+  }
+  function actionCard(row, a, idx) {
+    const del = h('button', { class: 'small danger', title: 'Remove action', onclick: () => { row.actions.splice(idx, 1); changed(); } }, '✕');
+    if (a.t === 'ble')
+      return h('div', { class: 'act' }, h('div', { class: 't' }, h('span', {}, 'Normal key press'), del),
+        h('div', { class: 'note' }, 'Also sends the key\'s usual Bluetooth key press (the hub sees it; add a keyboard action to turn it into a PC key).'));
+    if (a.t === 'mqtt') {
+      const test = h('button', { class: 'small', disabled: !S.link, title: 'Send this action now, without uploading', onclick: async () => {
+        const sp = Core.netSpec(a);
+        try { log('test: ' + await S.link.cmd(`NTEST ${sp.kind} ${sp.flag} ${Core.hexStr(sp.s1)} ${Core.hexStr(sp.s2)}`, 4000)); } catch (e) { log('test failed: ' + e.message); }
+      } }, 'Test');
+      const txt = (label, key, ph) => [h('label', {}, label), h('input', { type: 'text', value: a[key] || '', placeholder: ph || '', onchange: e => { a[key] = e.target.value; changed(); } })];
+      return h('div', { class: 'act' }, h('div', { class: 't' }, h('span', {}, 'MQTT publish (via hub)'), h('span', {}, test, ' ', del)),
+        h('div', { class: 'f' },
+          txt('Topic', 'topic', 'home/office/light/set'), txt('Payload', 'payload', 'ON'),
+            h('label', {}, 'Retain'), h('input', { type: 'checkbox', checked: a.retain, onchange: e => { a.retain = e.target.checked; changed(); } })),
+        h('div', { class: 'note' }, 'Runs on the hub over WiFi when this key is pressed on this layer. Set up WiFi and the broker under Network… Needs the key press ID above.'));
+    }
+    if (a.t === 'goto') {
+      const sel = h('select', { onchange: e => { a.layer = e.target.value; changed(); } },
+        S.project.layers.map((L, i) => h('option', { value: L.id }, `${i + 1}. ${L.name || '(unnamed)'}`)));
+      sel.value = a.layer;
+      return h('div', { class: 'act' }, h('div', { class: 't' }, h('span', {}, 'Go to layer (via hub)'), del),
+        h('div', { class: 'f' }, h('label', {}, 'Layer'), sel),
+        h('div', { class: 'note' }, 'After this key is pressed (its IR is sent as usual), the hub switches the remote to this layer. Needs the key press ID above.'));
+    }
+    if (a.t === 'kbd') {
+      const kindSel = h('select', { onchange: e => { a.kind = e.target.value; a.code = a.kind === 'k' ? 0x28 : a.kind === 's' ? 2 : 0xCD; a.mods = 0; changed(); } },
+        h('option', { value: 'k' }, 'Keyboard key'), h('option', { value: 'c' }, 'Media key'), S.hub.out === 'ble' && a.kind !== 's' ? null : h('option', { value: 's' }, 'PC power (sleep/wake)'));
+      kindSel.value = a.kind || 'k';
+      const list = a.kind === 'c' ? Core.MEDIA_KEYS : a.kind === 's' ? Core.SYSTEM_KEYS : Core.KBD_KEYS;
+      const codeSel = h('select', { onchange: e => { a.code = Number(e.target.value); changed(); } }, list.map(([c, n]) => h('option', { value: c }, n)));
+      codeSel.value = a.code;
+      return h('div', { class: 'act' }, h('div', { class: 't' }, h('span', {}, 'PC key (via hub)'), del),
+        h('div', { class: 'f' }, h('label', {}, 'Type'), kindSel, h('label', {}, 'Key'), codeSel,
+          a.kind !== 'k' ? null : [h('label', {}, 'Modifiers'), h('span', {}, Core.MODS.map(([n, bit]) =>
+            h('label', { style: 'margin-right:8px;color:var(--text)' }, h('input', { type: 'checkbox', checked: (a.mods || 0) & bit, onchange: e => { a.mods = e.target.checked ? (a.mods | bit) : (a.mods & ~bit); changed(); } }), ' ' + n)))]),
+        h('div', { class: 'note' }, 'The hub sends this to the PC over USB while this layer is active. Needs the key press ID above.'));
+    }
+    const title = { nec: 'IR · NEC', necx: 'IR · NEC extended', raw: 'IR · raw', unsupported: 'IR · unsupported' }[a.t];
+    const f = [];
+    if (a.t === 'nec') {
+      f.push(hexField('Address (hex)', a, 'addr', 2), hexField('Command (hex)', a, 'cmd', 2));
+      const rev8 = x => { let r = 0; for (let i = 0; i < 8; i++) if (x & (1 << i)) r |= 128 >> i; return r; };
+      const mode = h('select', {}, h('option', { value: 'rev' }, 'List style (20DF23DC, bits as sent)'), h('option', { value: 'flip' }, 'Flipper byte order'));
+      const paste = h('input', { type: 'text', class: 'mono', placeholder: '20DF23DC', onchange: e => {
+        const t = e.target.value.replace(/[^0-9a-f]/gi, '');
+        if (t.length !== 8) { log('Paste 8 hex digits, e.g. 20DF23DC'); return; }
+        const b = [0, 2, 4, 6].map(i => parseInt(t.substr(i, 2), 16));
+        if ((b[0] ^ b[1]) !== 255 || (b[2] ^ b[3]) !== 255) log('Note: bytes 2 and 4 are not the complements of bytes 1 and 3, so this is not a plain NEC code. Using bytes 1 and 3 anyway.');
+        if (mode.value === 'rev') { a.addr = rev8(b[0]); a.cmd = rev8(b[2]); } else { a.addr = b[0]; a.cmd = b[2]; }
+        changed();
+      } });
+      f.push(h('label', {}, 'Paste code'), h('span', {}, paste, mode));
+    }
+    if (a.t === 'necx') f.push(hexField('Address (hex)', a, 'addr', 4), hexField('Command (hex)', a, 'cmd', 4));
+    if (a.t === 'raw') f.push(h('label', {}, 'Timings'), h('span', { class: 'mono hint' }, `${(a.data || []).length} values: ${(a.data || []).slice(0, 4).join(' ')}…`));
+    if (a.t === 'unsupported') f.push(h('label', {}, 'Protocol'), h('span', {}, a.proto));
+    if (a.t === 'nec' || a.t === 'necx') f.push(h('label', {}, 'Repeat frame'), h('input', { type: 'checkbox', checked: a.rep, onchange: e => { a.rep = e.target.checked; changed(); } }));
+    if (a.t !== 'unsupported') {
+      f.push(...numField('Carrier Hz', a, 'freq'), ...numField('Duty %', a, 'duty'), ...numField('Wait after ms', a, 'post'), ...numField('Repeats', a, 'repeat'));
+      f.push(h('label', {}, 'Optional'), h('input', { type: 'checkbox', checked: a.opt, onchange: e => { a.opt = e.target.checked; changed(); } }));
+    }
+    return h('div', { class: 'act' }, h('div', { class: 't' }, h('span', {}, title), del), h('div', { class: 'f' }, f),
+      flipperPicker(a), a.t === 'necx' ? h('div', { class: 'note' }, 'NEC extended is untested.') : null,
+      a.opt ? h('div', { class: 'note' }, 'Type 6, as the Fire TV uses on Power. Exact meaning unconfirmed.') : null);
+  }
+  function renderEditor() {
+    const L = layer(), ed = $('editor'); ed.textContent = '';
+    if (!L) return;
+    const warns = Core.check(S.project);
+    ed.append(h('div', { class: 'toolbar' },
+      h('label', {}, 'Name ', h('input', { type: 'text', value: L.name, onchange: e => { L.name = e.target.value; changed(); } })),
+      h('label', {}, 'Unbound keys fall through to ', (() => {
+        const sel = h('select', { onchange: e => { if (e.target.value) L.base = e.target.value; else delete L.base; changed(); } },
+          h('option', { value: '' }, '(nothing)'),
+          S.project.layers.filter(x => x.id !== L.id).map(x => h('option', { value: x.id }, x.name || '(unnamed)')));
+        sel.value = L.base || '';
+        return sel;
+      })())));
+    {
+      const inh = Core.effectiveRows(L, S.project).filter(r => !L.rows.some(o => o.scan === r.scan));
+      if (inh.length) ed.append(h('p', { class: 'hint' }, 'Inherited from the base layer: ' + inh.map(r => Core.keyName ? Core.keyName(r.scan) : r.scan).join(', ')));
+    }
+    if (S.hub.out === 'ble' && S.project.layers.some(x => x.rows.some(r => r.actions.some(a => a.t === 'kbd' && a.kind === 's'))))
+      warns.push({ msg: 'This hub sends a BLE keyboard, which has no PC sleep/wake/shut down. Those actions are ignored.', err: false });
+    if (warns.length) ed.append(h('ul', { class: 'warns' }, warns.map(w => h('li', { class: w.err ? 'err' : '' }, (w.err ? '✖ ' : '⚠ ') + w.msg))));
+
+    L.rows.forEach((row, ri) => {
+      const used = new Set(L.rows.map(r => r.scan));
+      const keySel = h('select', { onchange: e => { row.scan = Number(e.target.value); delete row.sig; changed(); } },
+        Core.allKeys().filter(k => k[0] === row.scan || !used.has(k[0])).map(k => h('option', { value: k[0] }, `${k[1]} (${k[0]})` + (Core.KEY_NOTES[k[0]] ? ` · ${Core.KEY_NOTES[k[0]]}` : ''))));
+      keySel.value = row.scan;
+      ed.append(h('div', { class: 'bind' },
+        h('div', { class: 'bind-head' }, h('b', {}, 'Key'), keySel,
+          row.actions.some(isHubA) ? [h('span', { class: 'hint' }, 'key press ID'),
+            h('input', { type: 'text', class: 'mono', style: 'width:90px', placeholder: 'Learn…', value: Core.sigOf(row), onchange: e => { row.sig = e.target.value.trim(); changed(); } }),
+            h('button', { class: 'small', disabled: !S.link || S.learning, title: 'Press this key on the remote when asked', onclick: () => learnSig(sig => { row.sig = sig; changed(); }) }, 'Learn')] : null,
+          h('span', { class: 'sp' }),
+          h('button', { class: 'small danger', onclick: () => { L.rows.splice(ri, 1); changed(); } }, 'Remove key')),
+        h('div', { class: 'acts' }, row.actions.map((a, i) => actionCard(row, a, i))),
+        h('div', { class: 'add' },
+          h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'nec', addr: 4, cmd: 0, freq: 38028, duty: 33, post: 0, repeat: 0, opt: false }); changed(); } }, '+ IR (NEC)'),
+          h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'raw', freq: 38000, duty: 33, data: [], post: 0, repeat: 0, opt: false }); changed(); } }, '+ IR (raw)'),
+          h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'ble' }); changed(); } }, '+ Normal key press'),
+          row.actions.some(a => a.t === 'kbd') ? null :
+            h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'kbd', kind: 'k', code: 0x28, mods: 0 }); changed(); } }, '+ PC key / media / sleep-wake'),
+          h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'mqtt', topic: '', payload: '', retain: false }); changed(); } }, '+ MQTT publish'),
+          row.actions.some(a => a.t === 'goto') ? null :
+            h('button', { class: 'small', onclick: () => { row.actions.push({ t: 'goto', layer: S.project.layers[(S.sel + 1) % S.project.layers.length].id }); changed(); } }, '+ Go to layer'))));
+    });
+
+    const used = new Set(L.rows.map(r => r.scan));
+    const free = Core.allKeys().filter(k => !used.has(k[0]));
+    const pick = h('select', {}, free.map(k => h('option', { value: k[0] }, `${k[1]} (${k[0]})` + (Core.KEY_NOTES[k[0]] ? ` · ${Core.KEY_NOTES[k[0]]}` : ''))));
+    ed.append(h('div', { class: 'bind' }, h('div', { class: 'bind-head' }, h('b', {}, 'Bind another key'), pick,
+      h('button', { disabled: !free.length, onclick: () => { L.rows.push({ scan: Number(pick.value), actions: [{ t: 'kbd', kind: 'k', code: 0x28, mods: 0 }] }); changed(); } }, 'Add'))),
+      h('p', { class: 'hint' }, 'Keys without a row behave normally. A key with only a PC-key action gets no table row, so the remote keeps sending its normal key press for the hub to translate.'));
+  }
+
+  function renderSwitch() {
+    const b = $('swbox'); b.textContent = '';
+    const sk = S.project.switchKey;
+    b.append(h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center' },
+      h('input', { type: 'text', class: 'mono', style: 'width:90px', value: sk.sig, onchange: e => { sk.sig = e.target.value.trim(); changed(); } }),
+      h('button', { class: 'small', disabled: !S.link || S.learning, onclick: () => learnSig(sig => { sk.sig = sig; changed(); }) }, 'Learn'),
+      h('button', { class: 'small', onclick: () => { sk.sig = '239:A1'; changed(); } }, 'Prime Video'),
+      h('button', { class: 'small', onclick: () => { sk.sig = ''; changed(); } }, 'None')),
+      h('p', { class: 'hint' }, sk.sig ? 'Click Learn, then press the remote key that should switch layers. Default is Prime Video (239:A1).' : 'No cycle key: layers change only through "Go to layer" actions.'));
+  }
+  async function learnSig(cb) {
+    if (!S.link || S.learning) return;
+    S.learning = true; render(); log('Press the remote key now (15 s)…');
+    try {
+      await S.link.cmd('LEARN 1', 4000);
+      const sig = await new Promise((res, rej) => { S.link.sigWait = res; setTimeout(() => rej(new Error('no key press seen')), 15000); });
+      log('Learned key press ID ' + sig); cb(sig);
+    } catch (e) {
+      log('Learn failed: ' + e.message);
+      try { await S.link.cmd('LEARN 0', 3000); } catch (_) {}
+    }
+    S.learning = false; if (S.link) S.link.sigWait = null; render();
+  }
+  function render() { Core.setBook(S.project); renderStatus(); renderLayers(); renderSwitch(); renderEditor(); }
+
+  // ---------- serial link ----------
+  class Link {
+    constructor(port) { this.port = port; this.pending = null; this.buf = ''; }
+    async open() {
+      await this.port.open({ baudRate: 115200 });
+      try { await this.port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) {}
+      this.writer = this.port.writable.getWriter();
+      this.reader = this.port.readable.getReader();
+      this.loop();
+    }
+    async loop() {
+      const dec = new TextDecoder();
+      try {
+        for (;;) {
+          const { value, done } = await this.reader.read();
+          if (done) break;
+          this.buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = this.buf.indexOf('\n')) >= 0) { const line = this.buf.slice(0, i).replace(/\r$/, ''); this.buf = this.buf.slice(i + 1); this.onLine(line); }
+          if (this.buf.length > 8192) this.buf = '';
+        }
+      } catch (e) { log('serial read error: ' + e.message); }
+      if (this.onClose) this.onClose();
+    }
+    onLine(line) {
+      if (!line.trim()) return;
+      log(line.length > 160 ? line.slice(0, 160) + '…' : line);
+      if (line.startsWith('!CONN')) { S.hub.conn = line.includes('1'); S.hub.known = true; render(); }
+      else if (line.startsWith('!KEY')) { const w = this.keyWait; this.keyWait = null; if (w) w(line.slice(4).trim()); }
+      else if (line.startsWith('!SIG')) { const w = this.sigWait; this.sigWait = null; if (w) w(line.slice(4).trim()); }
+      else if (line.startsWith('!LAYER')) { S.hub.layer = Number(line.split(' ')[1]) || 0; render(); }
+      else if (line.startsWith('@') && this.pending) {
+        const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(line);
+      }
+    }
+    cmd(line, timeout = 8000) {
+      return new Promise((resolve, reject) => {
+        if (this.pending) return reject(new Error('another command is in flight'));
+        const timer = setTimeout(() => { this.pending = null; reject(new Error('no reply from the hub to ' + line.split(' ')[0])); }, timeout);
+        this.pending = { resolve, reject, timer };
+        this.writer.write(new TextEncoder().encode(line + '\n')).catch(e => { clearTimeout(timer); this.pending = null; reject(e); });
+      });
+    }
+    async close() {
+      try { await this.reader.cancel(); } catch (e) {}
+      try { this.reader.releaseLock(); } catch (e) {}
+      try { this.writer.releaseLock(); } catch (e) {}
+      try { await this.port.close(); } catch (e) {}
+    }
+  }
+
+  async function pollHello() {
+    // The ESP32 may reboot when the port opens, so ask repeatedly until it answers.
+    for (let i = 0; i < 12 && S.link; i++) {
+      try {
+        const r = await S.link.cmd('HELLO', 1200);
+        const m = r.match(/conn=(\d) layer=(\d+)/);
+        if (m) { S.hub = { known: true, conn: m[1] === '1', layer: Number(m[2]), out: (r.match(/out=(\w+)/) || [])[1] || 'usb' }; render(); return; }
+      } catch (e) { /* not up yet */ }
+      await new Promise(r => setTimeout(r, 600));
+    }
+    if (S.link) log('The hub did not answer. Is hub2.ino running on this port?');
+  }
+
+  $('btnConnect').onclick = async () => {
+    if (S.link) { const l = S.link; S.link = null; S.hub = { conn: false, layer: 0 }; await l.close(); render(); return; }
+    if (!('serial' in navigator)) { log('Web Serial is not available in this browser. Use Chrome or Edge.'); return; }
+    try {
+      const port = await navigator.serial.requestPort();
+      const link = new Link(port);
+      link.onClose = () => { if (S.link === link) { S.link = null; S.hub = { conn: false, layer: 0 }; log('serial port closed'); render(); } };
+      await link.open();
+      S.link = link; S.hub = { conn: false, layer: 0, known: false };
+      render();
+      pollHello();
+    } catch (e) { log('connect failed: ' + e.message); }
+  };
+
+  $('btnUpload').onclick = async () => {
+    if (!S.link || S.busy) return;
+    S.busy = true; renderStatus();
+    const bar = $('bar').firstElementChild;
+    try {
+      const res = await Core.upload(S.link, S.project, (f, what) => { bar.style.width = Math.round(f * 100) + '%'; log(`[upload ${Math.round(f * 100)}%] ${what}`); });
+      log('Upload complete: ' + res.map(r => `${r.name} ${r.size} B`).join(', '));
+    } catch (e) { log('UPLOAD FAILED: ' + e.message); alert('Upload failed: ' + e.message); }
+    S.busy = false; renderStatus();
+    setTimeout(() => { bar.style.width = '0'; }, 1500);
+  };
+
+  // ---------- network settings ----------
+  const NETF = [['ssid', 'WiFi name', 'text'], ['wpass', 'WiFi password', 'password'],
+    ['mhost', 'MQTT broker host', 'text'], ['mport', 'MQTT port', 'text'], ['muser', 'MQTT user', 'text'], ['mpass', 'MQTT password', 'password']];
+  const NETKEY = 'remoteBinder.net.v1';
+  function buildNetForm() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(NETKEY) || '{}'); } catch (e) {}
+    const f = h('div', { class: 'f' });
+    for (const [k, label, type] of NETF) f.append(h('label', {}, label), h('input', { id: 'net_' + k, type, value: saved[k] || (k === 'mport' ? '1883' : ''), autocomplete: 'off' }));
+    f.append(h('label', {}, 'Remember here'), h('input', { id: 'net_remember', type: 'checkbox', checked: !!saved.__remember }));
+    const box = $('netForm'); box.textContent = ''; box.append(f);
+  }
+  const netVal = k => $('net_' + k).value.trim();
+  $('btnNet').onclick = () => { buildNetForm(); $('netStatus').textContent = ''; $('dlgNet').showModal(); };
+  $('netClose').onclick = () => $('dlgNet').close();
+  $('netSend').onclick = async () => {
+    if (!S.link) { $('netStatus').textContent = 'Connect the hub first.'; return; }
+    try {
+      const hx = Core.hexStr;
+      await S.link.cmd(`WIFI ${hx(netVal('ssid'))} ${hx($('net_wpass').value)}`, 4000);
+      await S.link.cmd(`MQTT ${hx(netVal('mhost'))} ${Number(netVal('mport')) || 1883} ${hx(netVal('muser'))} ${hx($('net_mpass').value)}`, 4000);
+      const saved = $('net_remember').checked ? Object.fromEntries(NETF.map(([k]) => [k, $('net_' + k).value]).concat([['__remember', true]])) : {};
+      try { localStorage.setItem(NETKEY, JSON.stringify(saved)); } catch (e) {}
+      $('netStatus').textContent = 'Sent. The hub is connecting; click Check status in a few seconds.';
+    } catch (e) { $('netStatus').textContent = 'Failed: ' + e.message + ' (is the hub firmware up to date?)'; }
+  };
+  $('netCheck').onclick = async () => {
+    if (!S.link) { $('netStatus').textContent = 'Connect the hub first.'; return; }
+    try { $('netStatus').textContent = await S.link.cmd('NSTATUS', 3000); } catch (e) { $('netStatus').textContent = 'Failed: ' + e.message; }
+  };
+
+  // ---------- scan-ID finder ----------
+  const F = { running: false, cancel: false, found: [] };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function waitKey(ms) {
+    return new Promise(res => {
+      const t = setTimeout(() => { S.link.keyWait = null; res(null); }, ms);
+      S.link.keyWait = sig => { clearTimeout(t); res(sig); };
+    });
+  }
+  async function runFinder() {
+    if (F.running) return;
+    if (!S.link || !S.hub.conn) { $('findStatus').textContent = 'Connect the hub and make sure the remote is connected first.'; return; }
+    const labels = $('findLabels').value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (!labels.length) { $('findStatus').textContent = 'Enter at least one button name.'; return; }
+    const maxScan = $('findWide').checked ? 64 : 42;
+    F.running = true; F.cancel = false; F.found = [];
+    $('findStart').disabled = true; $('findApply').disabled = true; $('findResult').textContent = '';
+    const passes = Core.probePasses();
+    const reads = labels.map(() => []), sigs = labels.map(() => '');
+    try {
+      for (let p = 0; p < passes.length && !F.cancel; p++) {
+        $('findStatus').textContent = `Round ${p + 1}/${passes.length}: loading probe table onto the remote…`;
+        $('findPrompt').textContent = '';
+        const probe = { switchKey: { sig: '239:A1' }, labels: {}, sigs: {}, layers: [Core.probeLayer(passes[p], maxScan, Core.newId())] };
+        await Core.upload(S.link, probe, () => {});
+        await S.link.cmd('WATCH 1', 3000);
+        await sleep(800);
+        for (let k = 0; k < labels.length && !F.cancel; k++) {
+          $('findStatus').textContent = `Round ${p + 1}/${passes.length}`;
+          $('findPrompt').textContent = `Press: ${labels[k]}`;
+          const sig = await waitKey(3500);
+          reads[k][p] = !!sig;
+          if (sig && p === 0) sigs[k] = sig;
+          log(`finder round ${p + 1} ${labels[k]}: ${sig ? 'press ' + sig : 'nothing'}`);
+          await sleep(sig ? 900 : 200);           // let any extra reports from the same press pass
+          S.link.keyWait = null;
+        }
+        await S.link.cmd('WATCH 0', 3000);
+      }
+      if (!F.cancel) {
+        F.found = labels.map((l, k) => Object.assign({ label: l, sig: sigs[k] }, Core.decodeProbe(reads[k], maxScan)));
+        $('findResult').innerHTML = '';
+        $('findResult').append(h('table', {}, F.found.map(r => h('tr', {},
+          h('td', { style: 'padding:2px 10px 2px 0' }, r.label),
+          h('td', { style: 'padding:2px 10px 2px 0' }, r.ok ? `scan ${r.scan}` : '?'),
+          h('td', { style: 'padding:2px 10px 2px 0' }, r.sig || ''),
+          h('td', { style: 'color:' + (r.ok ? 'var(--ok)' : 'var(--warn)') }, r.ok ? (Core.KEYS.find(k => k[0] === r.scan) ? 'matches known key ' + Core.KEYS.find(k => k[0] === r.scan)[1] : 'new key') : r.why)))));
+        $('findApply').disabled = !F.found.some(r => r.ok);
+      }
+    } catch (e) {
+      log('FINDER FAILED: ' + e.message); $('findStatus').textContent = 'Failed: ' + e.message;
+    }
+    try { await S.link.cmd('WATCH 0', 2000); } catch (e) {}
+    $('findPrompt').textContent = '';
+    if (S.link) {
+      $('findStatus').textContent = 'Restoring your project on the remote…';
+      try { await Core.upload(S.link, S.project, () => {}); $('findStatus').textContent = 'Done. Your project was uploaded again.'; }
+      catch (e) { $('findStatus').textContent = 'Could not restore your project: ' + e.message + ' (click Upload to remote)'; }
+    }
+    F.running = false; $('findStart').disabled = false;
+  }
+  $('btnFind').onclick = () => { $('findStatus').textContent = ''; $('dlgFind').showModal(); };
+  $('findClose').onclick = () => { F.cancel = true; if (S.link) S.link.keyWait = null; $('dlgFind').close(); };
+  $('findStart').onclick = runFinder;
+  $('findApply').onclick = () => {
+    for (const r of F.found.filter(x => x.ok)) {
+      S.project.labels[r.scan] = r.label;
+      if (r.sig) S.project.sigs[r.scan] = r.sig;
+      log(`Saved: ${r.label} = scan ${r.scan}, key press ID ${r.sig}`);
+    }
+    $('findApply').disabled = true; changed();
+  };
+
+  // ---------- buttons ----------
+  $('btnAddLayer').onclick = () => {
+    if (S.project.layers.length >= Core.LIMITS.layers) return;
+    S.project.layers.push({ id: Core.newId(), name: 'Layer ' + (S.project.layers.length + 1), rows: [] });
+    S.sel = S.project.layers.length - 1; changed();
+  };
+  $('btnDupLayer').onclick = () => {
+    if (S.project.layers.length >= Core.LIMITS.layers) return;
+    const c = JSON.parse(JSON.stringify(layer()));
+    c.id = Core.newId(); c.name = (c.name || 'Layer') + ' copy';
+    S.project.layers.splice(S.sel + 1, 0, c); S.sel++; changed();
+  };
+  $('btnDelLayer').onclick = () => {
+    if (S.project.layers.length <= 1) return;
+    if (!confirm(`Delete layer "${layer().name}"?`)) return;
+    const gone = S.project.layers.splice(S.sel, 1)[0];
+    for (const x of S.project.layers) { if (x.base === gone.id) delete x.base; }
+    S.sel = Math.max(0, S.sel - 1); changed();
+  };
+  const move = d => () => {
+    const a = S.project.layers, j = S.sel + d;
+    if (j < 0 || j >= a.length) return;
+    [a[S.sel], a[j]] = [a[j], a[S.sel]]; S.sel = j; changed();
+  };
+  $('btnUp').onclick = move(-1); $('btnDown').onclick = move(1);
+
+  $('btnReset').onclick = () => { if (confirm('Replace the project with the built-in defaults?')) { S.project = Core.defaults(); S.sel = 0; changed(); } };
+  $('btnSave').onclick = () => {
+    const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(S.project, null, 2)], { type: 'application/json' })), download: 'remote-binder-project.json' });
+    document.body.append(a); a.click(); a.remove();
+  };
+  $('btnOpen').onclick = () => $('fileOpen').click();
+  $('fileOpen').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const p = JSON.parse(await f.text());
+      if (!p || !Array.isArray(p.layers) || !p.layers.length) throw new Error('not a project file');
+      S.project = Core.migrate(p); S.sel = 0; changed(); log('Opened ' + f.name);
+    } catch (err) { log('Could not open project: ' + err.message); }
+  };
+  $('btnFlipper').onclick = () => $('fileFlipper').click();
+  $('fileFlipper').onchange = async e => {
+    const files = Array.from(e.target.files); e.target.value = '';
+    for (const f of files) {
+      const items = Core.parseFlipper(await f.text(), f.name);
+      S.flip.push(...items); S.flipFiles.push(f.name);
+      log(`Loaded ${items.length} signals from ${f.name}`);
+    }
+    render();
+  };
+
+  S.project = load();
+  Core.setBook(S.project);
+  render();
+  log('Remote Binder ready. Connect the hub (hub2.ino) to upload.');
+})();
+</script>
+</body>
+</html>
